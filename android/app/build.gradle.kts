@@ -34,11 +34,24 @@ android {
         }
     }
 
+    // Release key from the environment (the release pipeline, from GitHub secrets). Without it
+    // a release build is signed with the debug key: fine locally, but such an APK cannot be
+    // updated by the next one.
+    val keystore = System.getenv("PARTIZAN_KEYSTORE")?.let(::file)?.takeIf { it.exists() }
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = keystore
+                storePassword = System.getenv("PARTIZAN_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("PARTIZAN_KEY_ALIAS")
+                keyPassword = System.getenv("PARTIZAN_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (keystore != null) "release" else "debug")
         }
     }
 }

@@ -62,6 +62,38 @@ scripts/install-device.sh [serial]
 Сборке нужны `JAVA_HOME` и `ANDROID_HOME`, сборке ядра — ещё `ANDROID_NDK_HOME` и
 `cargo-ndk` (подробности — в `../partizan/CLAUDE.md`).
 
+## Подпись релиза
+
+Релизный APK собирает пайплайн `Release` в репозитории
+[partizan](https://github.com/defuntitled/partizan): он клонирует этот репозиторий
+(`ui_ref`, по умолчанию `main`), собирает ядро и приложение с версией ядра и прикладывает
+`partizan-<версия>-android-arm64.apk` к релизу.
+
+APK подписывается постоянным ключом из секретов репозитория **partizan**. Без него сборка
+останавливается: APK с отладочной подписью нельзя обновить следующим релизом.
+
+1. Один раз создайте ключ и храните его вне репозитория. Если ключ потерян, установленные
+   приложения больше не обновятся.
+
+   ```sh
+   keytool -genkeypair -v -keystore partizan-release.jks -alias partizan \
+       -keyalg RSA -keysize 4096 -validity 10000
+   base64 -w0 partizan-release.jks > partizan-release.jks.b64
+   ```
+
+2. В `partizan` → Settings → Secrets and variables → Actions добавьте:
+
+   | Секрет | Значение |
+   | --- | --- |
+   | `ANDROID_KEYSTORE_BASE64` | содержимое `partizan-release.jks.b64` |
+   | `ANDROID_KEYSTORE_PASSWORD` | пароль хранилища |
+   | `ANDROID_KEY_ALIAS` | `partizan` |
+   | `ANDROID_KEY_PASSWORD` | пароль ключа |
+
+Локально release-сборка подписывается тем же ключом, если заданы `PARTIZAN_KEYSTORE`
+(путь к `.jks`), `PARTIZAN_KEYSTORE_PASSWORD`, `PARTIZAN_KEY_ALIAS` и `PARTIZAN_KEY_PASSWORD`;
+без них — отладочным.
+
 ## Тесты
 
 ```sh
