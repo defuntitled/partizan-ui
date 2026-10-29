@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../core/link.dart';
@@ -9,6 +10,7 @@ import '../../core/vpn_bridge.dart';
 import '../../state/profiles.dart';
 import '../../state/vpn.dart';
 import '../theme.dart';
+import '../widgets/art.dart';
 import 'stub.dart';
 
 /// Server profiles: tap to make one active, drag to reorder, menu to rename or delete.
@@ -20,14 +22,31 @@ class ServersScreen extends ConsumerWidget {
     final profiles = ref.watch(profilesProvider);
     final active = ref.watch(activeProfileProvider).value;
     final store = ref.read(profileStoreProvider);
-    return Scaffold(
-      appBar: AppBar(title: const Text('СЕРВЕРЫ')),
+    // Under the map, above the stones.
+    final padding = EdgeInsets.fromLTRB(
+      16,
+      _WorldMap.height + 20,
+      16,
+      Debris.top(MediaQuery.sizeOf(context).width) + 16,
+    );
+    const add = _AddServerTile();
+    return DarkScaffold(
+      title: 'СЕРВЕРЫ',
+      behind: const _WorldMap(),
       body: switch (profiles) {
-        AsyncData(:final value) when value.isEmpty => const StubBody(
-          'Серверов пока нет.\nДобавьте сервер по ссылке partizan:// или QR-коду.',
+        AsyncData(:final value) when value.isEmpty => ListView(
+          padding: padding,
+          children: const [
+            add,
+            SizedBox(height: 24),
+            StubBody(
+              'Серверов пока нет.\nДобавьте сервер по ссылке partizan:// или QR-коду.',
+            ),
+          ],
         ),
         AsyncData(:final value) => ReorderableListView.builder(
-          padding: const EdgeInsets.all(16),
+          padding: padding,
+          header: add,
           buildDefaultDragHandles: false,
           itemCount: value.length,
           onReorderItem: (from, to) {
@@ -45,15 +64,54 @@ class ServersScreen extends ConsumerWidget {
         AsyncError(:final error) => StubBody('Список недоступен: $error'),
         _ => const Center(child: CircularProgressIndicator()),
       },
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Добавить сервер',
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const AddServerScreen()),
-        ),
-        child: const Icon(Icons.add),
-      ),
     );
   }
+}
+
+/// The first row of the list: adds a server.
+class _AddServerTile extends StatelessWidget {
+  const _AddServerTile();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: ListTile(
+      key: const Key('add-server'),
+      leading: const Icon(Icons.add, color: PartizanColors.red),
+      title: const Text('Добавить сервер'),
+      subtitle: const Text('Ссылка partizan:// или QR-код'),
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute<void>(builder: (_) => const AddServerScreen())),
+    ),
+  );
+}
+
+/// The world map, dim, along the top of the list.
+class _WorldMap extends StatelessWidget {
+  const _WorldMap();
+
+  /// The map's height, top padding included: the list starts below it.
+  static const double height = 154;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: Align(
+      alignment: Alignment.topCenter,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+        child: SvgPicture.asset(
+          Art.world,
+          key: const Key('world-map'),
+          height: height - 4,
+          colorFilter: const ColorFilter.mode(
+            Color(0xFF3A3A3A),
+            BlendMode.srcIn,
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _ProfileTile extends ConsumerWidget {
@@ -186,10 +244,10 @@ class _AddServerScreenState extends ConsumerState<AddServerScreen> {
   Widget build(BuildContext context) {
     final info = _info;
     final problem = _problem;
-    return Scaffold(
-      appBar: AppBar(title: const Text('ДОБАВИТЬ СЕРВЕР')),
+    return DarkScaffold(
+      title: 'ДОБАВИТЬ СЕРВЕР',
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
         children: [
           // The keyboard must not learn the token: no suggestions, no autocorrect.
           TextField(

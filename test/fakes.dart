@@ -6,8 +6,10 @@ import 'package:partizan/app.dart';
 import 'package:partizan/core/link.dart';
 import 'package:partizan/core/profile.dart';
 import 'package:partizan/core/profile_store.dart';
+import 'package:partizan/core/split.dart';
 import 'package:partizan/core/vpn_bridge.dart';
 import 'package:partizan/core/vpn_status.dart';
+import 'package:partizan/platform/route_files.dart';
 import 'package:partizan/state/profiles.dart';
 import 'package:partizan/state/vpn.dart';
 
@@ -28,11 +30,44 @@ class FakeBridge implements VpnBridge {
   Stream<VpnStatus> statusChanges() => changes.stream;
 
   @override
-  Future<void> start({required String uri, int mtu = 1400}) async =>
-      calls.add('start $uri $mtu');
+  Future<void> start({
+    required String uri,
+    SplitRules split = SplitRules.all,
+    int mtu = 1400,
+  }) async {
+    calls.add('start $uri $mtu');
+    starts.add(split);
+  }
+
+  /// The rules of every `start`.
+  final starts = <SplitRules>[];
 
   @override
   Future<void> stop() async => calls.add('stop');
+
+  /// Every `publishLaunch`: profile name (or null) and rules.
+  final launches = <(String?, SplitRules)>[];
+
+  /// The Kill Switch flag of every `publishLaunch`.
+  final killSwitches = <bool>[];
+
+  @override
+  Future<void> publishLaunch(
+    ServerProfile? profile,
+    SplitRules rules, {
+    bool killSwitch = false,
+  }) async {
+    launches.add((profile?.name, rules));
+    killSwitches.add(killSwitch);
+  }
+
+  @override
+  Future<void> openSystemVpnSettings() async => calls.add('vpn settings');
+
+  final appTargets = StreamController<AppTarget>.broadcast();
+
+  @override
+  Stream<AppTarget> targets() => appTargets.stream;
 
   @override
   Future<CheckResult> checkUri(String uri) async {
@@ -88,21 +123,51 @@ class MemoryProfileStore implements ProfileStore {
   @override
   Future<void> rename(int id, String name) async {
     final i = profiles.indexWhere((p) => p.id == id);
-    final p = profiles[i];
-    profiles[i] = ServerProfile(
-      id: p.id,
-      name: name,
-      host: p.host,
-      port: p.port,
-      transport: p.transport,
-    );
+    profiles[i] = profiles[i].copyWith(name: name);
     _emit();
   }
+
+  /// Rules by scope: `null` for the shared ones.
+  final rules = <int?, SplitRules>{};
+
+  @override
+  Stream<SplitRules> watchRules(int? profileId) =>
+      _watch(() => rules[profileId] ?? SplitRules.all);
+
+  @override
+  Future<void> saveRules(int? profileId, SplitRules value) async {
+    rules[profileId] = value;
+    _emit();
+  }
+
+  @override
+  Future<void> setOwnRules(int id, bool own) async {
+    if (own) rules.putIfAbsent(id, () => rules[null] ?? SplitRules.all);
+    final i = profiles.indexWhere((p) => p.id == id);
+    profiles[i] = profiles[i].copyWith(ownRules: own);
+    _emit();
+  }
+
+  bool killSwitch = false;
+
+  @override
+  Stream<bool> watchKillSwitch() => _watch(() => killSwitch);
+
+  @override
+  Future<void> setKillSwitch(bool on) async {
+    killSwitch = on;
+    _emit();
+  }
+
+  @override
+  Future<SplitRules> rulesFor(ServerProfile profile) async =>
+      rules[profile.ownRules ? profile.id : null] ?? SplitRules.all;
 
   @override
   Future<void> delete(int id) async {
     profiles.removeWhere((p) => p.id == id);
     links.remove(id);
+    rules.remove(id);
     if (active == id) active = null;
     _emit();
   }
@@ -126,13 +191,32 @@ class MemoryProfileStore implements ProfileStore {
   Future<String?> link(int id) async => links[id];
 }
 
-Widget app(VpnBridge bridge, [ProfileStore? store]) => ProviderScope(
-  overrides: [
-    vpnBridgeProvider.overrideWithValue(bridge),
-    profileStoreProvider.overrideWithValue(store ?? MemoryProfileStore()),
-  ],
-  child: const PartizanApp(),
-);
+Widget app(VpnBridge bridge, [ProfileStore? store, RouteFiles? files]) =>
+    ProviderScope(
+      overrides: [
+        vpnBridgeProvider.overrideWithValue(bridge),
+        profileStoreProvider.overrideWithValue(store ?? MemoryProfileStore()),
+        routeFilesProvider.overrideWithValue(files ?? FakeRouteFiles()),
+      ],
+      child: const PartizanApp(),
+    );
+
+class FakeRouteFiles implements RouteFiles {
+  /// What `open` returns.
+  String? toOpen;
+
+  /// What `save` received, by file name.
+  final saved = <String, String>{};
+
+  @override
+  Future<String?> open() async => toOpen;
+
+  @override
+  Future<bool> save(String fileName, String text) async {
+    saved[fileName] = text;
+    return true;
+  }
+}
 
 const testLink =
     'partizan://00112233445566778899aabbccddeeff:'

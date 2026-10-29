@@ -20,3 +20,16 @@ bool isActive(VpnState state) => switch (state) {
   VpnState.connecting || VpnState.connected || VpnState.reconnecting => true,
   VpnState.idle || VpnState.revoked || VpnState.error => false,
 };
+
+/// Asks the main screen to connect the active profile: the tile or the widget sent the user
+/// here because the VPN permission is missing. Each request bumps the count.
+final connectRequestsProvider = NotifierProvider<ConnectRequests, int>(
+  ConnectRequests.new,
+);
+
+class ConnectRequests extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void request() => state++;
+}

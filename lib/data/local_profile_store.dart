@@ -4,9 +4,15 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../core/link.dart';
 import '../core/profile.dart';
 import '../core/profile_store.dart';
+import '../core/split.dart';
 import 'database.dart';
 
 const _activeKey = 'active_profile';
+const _killSwitchKey = 'kill_switch';
+const _sharedScope = 'shared';
+
+String _scope(int? profileId) =>
+    profileId == null ? _sharedScope : 'profile.$profileId';
 
 /// Profiles in SQLite, their links in the [SecretStore].
 class LocalProfileStore implements ProfileStore {
@@ -23,6 +29,7 @@ class LocalProfileStore implements ProfileStore {
     host: row.host,
     port: row.port,
     transport: row.transport,
+    ownRules: row.ownRules,
   );
 
   SimpleSelectStatement<$ProfilesTable, ProfileRow> get _ordered =>
@@ -94,6 +101,9 @@ class LocalProfileStore implements ProfileStore {
     await _secrets.delete(secretKey(id));
     await _db.transaction(() async {
       await (_db.delete(_db.profiles)..where((p) => p.id.equals(id))).go();
+      await (_db.delete(
+        _db.splitRuleSets,
+      )..where((r) => r.scope.equals(_scope(id)))).go();
       if (await _activeId() == id) {
         await (_db.delete(
           _db.settings,
@@ -116,6 +126,67 @@ class LocalProfileStore implements ProfileStore {
 
   @override
   Future<String?> link(int id) => _secrets.read(secretKey(id));
+
+  @override
+  Stream<SplitRules> watchRules(int? profileId) =>
+      (_db.select(_db.splitRuleSets)
+            ..where((r) => r.scope.equals(_scope(profileId))))
+          .watchSingleOrNull()
+          .map(_rules);
+
+  @override
+  Future<void> saveRules(int? profileId, SplitRules rules) => _db
+      .into(_db.splitRuleSets)
+      .insertOnConflictUpdate(
+        SplitRuleSetsCompanion.insert(
+          scope: _scope(profileId),
+          mode: rules.mode.name,
+          routes: formatRoutes(rules.routes),
+        ),
+      );
+
+  @override
+  Future<void> setOwnRules(int id, bool own) => _db.transaction(() async {
+    if (own && await _read(id) == null) {
+      await saveRules(id, await _read(null) ?? SplitRules.all);
+    }
+    await (_db.update(_db.profiles)..where((p) => p.id.equals(id))).write(
+      ProfilesCompanion(ownRules: Value(own)),
+    );
+  });
+
+  @override
+  Future<SplitRules> rulesFor(ServerProfile profile) async =>
+      await _read(profile.ownRules ? profile.id : null) ?? SplitRules.all;
+
+  Future<SplitRules?> _read(int? profileId) async {
+    final row = await (_db.select(
+      _db.splitRuleSets,
+    )..where((r) => r.scope.equals(_scope(profileId)))).getSingleOrNull();
+    return row == null ? null : _rules(row);
+  }
+
+  static SplitRules _rules(SplitRuleRow? row) {
+    if (row == null) return SplitRules.all;
+    final mode = SplitMode.values.firstWhere(
+      (m) => m.name == row.mode,
+      orElse: () => SplitMode.exclude,
+    );
+    return SplitRules(mode: mode, routes: parseRoutes(row.routes).routes);
+  }
+
+  @override
+  Stream<bool> watchKillSwitch() =>
+      (_db.select(_db.settings)..where((s) => s.key.equals(_killSwitchKey)))
+          .watchSingleOrNull()
+          .map((row) => row?.value == 'on');
+
+  @override
+  Future<void> setKillSwitch(bool on) => _db
+      .into(_db.settings)
+      .insertOnConflictUpdate(
+        SettingsCompanion.insert(key: _killSwitchKey, value: on ? 'on' : 'off'),
+      );
 
   Future<int?> _activeId() async {
     final row = await (_db.select(

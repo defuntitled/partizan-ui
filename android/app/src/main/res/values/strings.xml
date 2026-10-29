@@ -3,6 +3,10 @@
     <string name="app_name">partizan</string>
     <string name="vpn_channel">VPN-туннель</string>
     <string name="disconnect">Отключить</string>
+    <string name="connect">Включить</string>
+    <string name="no_server">Сервер не выбран</string>
+    <string name="blocked">Интернет заблокирован: нет VPN</string>
+    <string name="widget_description">Включение и выключение VPN</string>
     <string name="state_idle">Отключено</string>
     <string name="state_connecting">Подключение…</string>
     <string name="state_connected">Подключено</string>

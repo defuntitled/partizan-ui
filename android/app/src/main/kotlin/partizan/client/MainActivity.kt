@@ -11,6 +11,25 @@ import io.flutter.embedding.engine.FlutterEngine
 class MainActivity : FlutterActivity() {
     private var pendingVpn: ((Boolean) -> Unit)? = null
 
+    /** Where the tile or the widget asked the app to go, until Dart takes it. */
+    private var target: String? = null
+
+    /** Set by [VpnChannel]: hands a target to Dart while the app runs. */
+    var onTarget: ((String) -> Unit)? = null
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        target = intent?.getStringExtra(EXTRA_TARGET)
+        super.onCreate(savedInstanceState)
+        StatusHub.bind(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        intent.getStringExtra(EXTRA_TARGET)?.let { t -> onTarget?.invoke(t) ?: run { target = t } }
+    }
+
+    fun takeTarget(): String? = target.also { target = null }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         VpnChannel.register(flutterEngine, this)
@@ -52,8 +71,16 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private companion object {
-        const val REQUEST_VPN = 1
-        const val REQUEST_NOTIFICATIONS = 2
+    companion object {
+        const val EXTRA_TARGET = "target"
+
+        /** The server list: nothing to start. */
+        const val TARGET_SERVERS = "servers"
+
+        /** Start the active profile, asking for the VPN permission. */
+        const val TARGET_CONNECT = "connect"
+
+        private const val REQUEST_VPN = 1
+        private const val REQUEST_NOTIFICATIONS = 2
     }
 }

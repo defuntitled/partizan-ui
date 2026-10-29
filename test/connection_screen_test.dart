@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:partizan/core/vpn_status.dart';
 import 'package:partizan/core/link.dart';
+import 'package:partizan/core/split.dart';
 
 import 'fakes.dart';
 
@@ -14,9 +15,12 @@ void main() {
   ) async {
     final bridge = FakeBridge(VpnStatus.idle);
     // A change crosses the stream, the provider and a rebuild: let it all settle.
+    // Not pumpAndSettle: while connecting the glow blinks for as long as it lasts.
     Future<void> emit(VpnStatus status) async {
       bridge.changes.add(status);
-      await tester.pumpAndSettle();
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
     }
 
     await tester.pumpWidget(app(bridge));
@@ -54,9 +58,17 @@ void main() {
     expect(find.text('Дом'), findsOneWidget);
     expect(find.text('vpn.example.org:8443'), findsOneWidget);
 
+    await store.saveRules(
+      null,
+      SplitRules(
+        mode: SplitMode.include,
+        routes: parseRoutes('99.84.0.0/16').routes,
+      ),
+    );
     await tester.tap(find.byKey(const Key('vpn-toggle')));
     await tester.pumpAndSettle();
     expect(bridge.calls, ['start $testLink 1400']);
+    expect(bridge.starts.single.routes.single.toString(), '99.84.0.0/16');
 
     bridge.changes.add(
       const VpnStatus(state: VpnState.connected, transport: 'quic'),
@@ -91,7 +103,7 @@ void main() {
     await tester.tap(find.text('Сервер не выбран'));
     await tester.pumpAndSettle();
     expect(find.text('СЕРВЕРЫ'), findsOneWidget);
-    await tester.tap(find.byTooltip('Добавить сервер'));
+    await tester.tap(find.byKey(const Key('add-server')));
     await tester.pumpAndSettle();
     expect(find.text('ДОБАВИТЬ СЕРВЕР'), findsOneWidget);
     await tester.pageBack();

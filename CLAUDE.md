@@ -16,6 +16,7 @@ dart run build_runner build --delete-conflicting-outputs   # after changing lib/
 dart format lib test integration_test
 flutter test                                     # unit + widget tests, no device or core needed
 flutter test test/connection_screen_test.dart    # one file; add --plain-name 'A05-T3' for one test
+(cd android && ./gradlew :app:testDebugUnitTest)    # Kotlin unit tests (RoutePlan), JAVA_HOME as below
 scripts/core-aar.sh [--no-build]                 # build core AAR in ../partizan, copy to android/app/libs
 flutter build apk --debug --target-platform android-arm64
 scripts/install-device.sh [serial]              # rebuild + install + launch; never adb-install the APK left by integration tests
@@ -33,12 +34,18 @@ The Android build needs the core AAR in `android/app/libs/` (gitignored), a JDK 
 - `lib/state/` — riverpod. `vpnBridgeProvider` is overridden in `main.dart` and in tests with a fake.
 - Kotlin calls the core through the UniFFI bindings in package `partizan.core` (from the AAR) and JNA (`jna@aar` dependency). The app is arm64-only: `build.gradle.kts` clears the ABI list the Flutter plugin fills, otherwise JNA's 32-bit libraries make the APK installable where it cannot run.
 - `PartizanVpnService.kt` owns the Android lifecycle (TUN builder, foreground notification, `onRevoke`); the core owns the session. Core `stop()` blocks while the session closes — never call it on the main thread.
+- Secrets: links with tokens are in `SecretVault.kt` (Android Keystore AES-GCM), reached from Dart as `VaultStore` over `partizan/secrets`; the tile and widget read it natively. `KeystoreSecretStore` (flutter_secure_storage) remains only as the migration source.
+- Tile (`PartizanTileService`) and widget (`PartizanWidget`) act via `QuickAction.decide` and `Launch` (active profile + rules, published by Dart through `setLaunch`); they redraw from `StatusHub` on every core status.
+- Split tunneling: rules live in `split_rule_sets` (`shared` / `profile.<id>`); `RoutePlan.kt` turns them into `VpnService` routes (pure Kotlin, JUnit in `android/app/src/test`), the same rules go to the core as its second-line filter.
+- `flutter test integration_test` uninstalls the app at the end, wiping profiles on the device — ask before running it on a phone that has real data.
+- Art: `lib/ui/widgets/art.dart` (paths in `Art`, `Logo`, `Debris`, `DarkScaffold`), `record.dart` (the record is the on/off switch), `distressed_title.dart`. Variable fonts need `FontVariation('wght')` — use `oswald()` / `inter()` from `theme.dart`. The connecting glow animates forever: widget tests through Connecting must `pump`, not `pumpAndSettle`. Launcher/tile/notification icons are VectorDrawables of the logo's «p» (`res/drawable/ic_p.xml`, `ic_launcher_*`).
+- Kill Switch: flag in `settings` (`kill_switch`), published with `setLaunch`; `OnFailure.decide` (Launch.kt) + `PartizanVpnService.block()` keep a blackhole interface after a failure the user did not ask for.
 - UI text is Russian; look follows `spec/partizan-ui-concept.png` (red/black, condensed caps).
 
 ## Architecture (from the spec)
 
 ```
-Flutter UI (Dart)          screens, state (riverpod), profiles (drift + flutter_secure_storage)
+Flutter UI (Dart)          screens, state (riverpod), profiles (drift + SecretVault via channel)
   │ method channel
 Kotlin: VpnService + bridge  VPN lifecycle, TUN fd, foreground notification, TileService, App Widget
   │ UniFFI
@@ -65,6 +72,6 @@ client-core → transport → proto   unchanged, shared with server and router
 
 ## Security rules
 
-- Token / full `partizan://…` URI lives only in Android Keystore (`flutter_secure_storage`), never in SQLite, plain settings, or backups (`allowBackup=false`, secure storage excluded from auto-backup). It is read only at start and passed to the core inside the URI.
+- Token / full `partizan://…` URI lives only in the Keystore-encrypted `SecretVault`, never in SQLite, plain settings (`partizan_launch` holds no secret), or backups (`allowBackup=false`, data extraction rules exclude everything). It is read only at start and passed to the core inside the URI.
 - Never log tokens; destination addresses only at `debug` level and only locally. Log/metrics exports must contain no tokens.
 - `insecure=1` only in debug builds; SPKI pin is verified by the core.

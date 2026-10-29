@@ -8,7 +8,7 @@ import 'fakes.dart';
 Future<void> openAdd(WidgetTester tester) async {
   await tester.tap(find.text('Сервер не выбран'));
   await tester.pumpAndSettle();
-  await tester.tap(find.byTooltip('Добавить сервер'));
+  await tester.tap(find.byKey(const Key('add-server')));
   await tester.pumpAndSettle();
 }
 

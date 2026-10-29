@@ -58,4 +58,5 @@ dependencies {
     implementation(files("libs/partizan-core.aar"))
     // The bindings call the core through JNA; the AAR carries no dependency metadata.
     implementation("net.java.dev.jna:jna:5.19.1@aar")
+    testImplementation("junit:junit:4.13.2")
 }

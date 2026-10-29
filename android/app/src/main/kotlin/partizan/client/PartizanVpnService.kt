@@ -7,10 +7,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.IpPrefix
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import java.util.concurrent.Executors
 import partizan.core.SplitConfig
@@ -32,12 +34,21 @@ class PartizanVpnService : VpnService() {
     private val worker = Executors.newSingleThreadExecutor()
     private var running = false
 
+    /** The interface that carries nothing while the Kill Switch holds the internet blocked. */
+    private var blocked: ParcelFileDescriptor? = null
+
     private val observer: (VpnStatus) -> Unit = { status ->
-        if (running) notificationManager().notify(NOTIFICATION_ID, notification(status))
+        if (running && (status.state == VpnState.ERROR || status.state == VpnState.REVOKED)) {
+            failed()
+        }
+        if (running || blocked != null) {
+            notificationManager().notify(NOTIFICATION_ID, notification(status))
+        }
     }
 
     override fun onCreate() {
         super.onCreate()
+        StatusHub.bind(this)
         StatusHub.observe(observer)
     }
 
@@ -48,10 +59,16 @@ class PartizanVpnService : VpnService() {
                 if (uri == null) {
                     stopSelf()
                 } else {
-                    up(uri, intent.getIntExtra(EXTRA_MTU, DEFAULT_MTU))
+                    up(
+                        uri,
+                        intent.getIntExtra(EXTRA_MTU, DEFAULT_MTU),
+                        intent.getBooleanExtra(EXTRA_INCLUDE, false),
+                        intent.getStringArrayExtra(EXTRA_ROUTES)?.toList() ?: emptyList(),
+                    )
                 }
             }
             ACTION_STOP -> down()
+            ACTION_TOGGLE -> if (running || blocked != null) down() else upFromLaunch()
             // Restarted by the system without our intent (always-on comes in A11): nothing to
             // bring up without a profile.
             else -> if (!running) stopSelf()
@@ -59,28 +76,54 @@ class PartizanVpnService : VpnService() {
         return START_NOT_STICKY
     }
 
-    private fun up(uri: String, mtu: Int) {
+    /** From the tile or the widget: the active profile, its rules, its link from the vault. */
+    private fun upFromLaunch() {
+        val launch = Launch.read(this)
+        val link = launch?.let { SecretVault(this).read(SecretVault.linkKey(it.profileId)) }
+        if (launch == null || link == null) {
+            // Started as a foreground service: it must show itself before it may stop.
+            startForeground(VpnStatus(VpnState.IDLE, null, null, 0uL, 0uL, 0uL, null))
+            fail(getString(R.string.no_server))
+            return
+        }
+        up(link, DEFAULT_MTU, launch.include, launch.routes)
+    }
+
+    private fun up(uri: String, mtu: Int, include: Boolean, routes: List<String>) {
         if (running) return
+        // Connecting again from the blocked state: the real tunnel replaces the blocking one.
+        unblock()
         val connecting = VpnStatus(VpnState.CONNECTING, null, null, 0uL, 0uL, 0uL, null)
         startForeground(connecting)
         val tun =
             try {
-                Builder()
-                    .setSession(getString(R.string.app_name))
-                    .setMtu(mtu)
-                    .addAddress(TUN_V4, 32)
-                    .addAddress(TUN_V6, 128)
-                    // Everything, DNS included, goes into the interface; split tunneling (A09)
-                    // narrows the routes.
-                    .addRoute("0.0.0.0", 0)
-                    .addRoute("::", 0)
-                    .addDnsServer(DNS_V4)
-                    .addDnsServer(DNS_V6)
-                    // The app's own sockets, the core's connection to the server among them,
-                    // stay outside: no loop.
-                    .addDisallowedApplication(packageName)
-                    .setBlocking(false)
-                    .establish()
+                val builder =
+                    Builder()
+                        .setSession(getString(R.string.app_name))
+                        .setMtu(mtu)
+                        .addAddress(TUN_V4, 32)
+                        .addAddress(TUN_V6, 128)
+                        .addDnsServer(DNS_V4)
+                        .addDnsServer(DNS_V6)
+                        // The app's own sockets, the core's connection to the server among
+                        // them, stay outside: no loop.
+                        .addDisallowedApplication(packageName)
+                        .setBlocking(false)
+                // First line of split tunneling: the system sends only these into the
+                // interface; the filter in the core is the second.
+                val canExclude = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                val plan =
+                    RoutePlan.of(
+                        include,
+                        routes.map(Cidr::parse),
+                        listOf(Cidr.parse(DNS_V4), Cidr.parse(DNS_V6)),
+                        canExclude,
+                    )
+                plan.add.forEach { builder.addRoute(it.address, it.prefix) }
+                if (canExclude) {
+                    plan.exclude.forEach { builder.excludeRoute(IpPrefix(it.address, it.prefix)) }
+                }
+                builder.establish()
             } catch (e: Exception) {
                 fail("TUN: ${e.message}")
                 return
@@ -89,7 +132,8 @@ class PartizanVpnService : VpnService() {
             fail("VPN permission was withdrawn")
             return
         }
-        val config = VpnConfig(uri, SplitConfig(SplitMode.EXCLUDE, emptyList()), mtu.toUShort())
+        val mode = if (include) SplitMode.INCLUDE else SplitMode.EXCLUDE
+        val config = VpnConfig(uri, SplitConfig(mode, routes), mtu.toUShort())
         try {
             // The core takes the fd over and closes it on stop.
             coreStart(tun.detachFd(), config, StatusHub)
@@ -99,8 +143,10 @@ class PartizanVpnService : VpnService() {
         }
     }
 
+    /** The user's disconnect: everything down, the internet back, Kill Switch or not. */
     private fun down() {
         running = false
+        unblock()
         worker.execute {
             coreStop()
             Handler(Looper.getMainLooper()).post {
@@ -108,6 +154,51 @@ class PartizanVpnService : VpnService() {
                 stopSelf()
             }
         }
+    }
+
+    /** The tunnel failed on its own: the Kill Switch decides whether the internet stays shut. */
+    private fun failed() {
+        running = false
+        when (OnFailure.decide(Launch.killSwitch(this), userStopped = false)) {
+            OnFailure.RELEASE -> down()
+            OnFailure.BLOCK -> worker.execute {
+                coreStop()
+                Handler(Looper.getMainLooper()).post { block() }
+            }
+        }
+    }
+
+    /** Routes everything into an interface nobody reads: packets go nowhere. */
+    private fun block() {
+        blocked =
+            try {
+                Builder()
+                    .setSession(getString(R.string.app_name))
+                    .addAddress(TUN_V4, 32)
+                    .addAddress(TUN_V6, 128)
+                    .addRoute("0.0.0.0", 0)
+                    .addRoute("::", 0)
+                    .addDnsServer(DNS_V4)
+                    .addDnsServer(DNS_V6)
+                    .addDisallowedApplication(packageName)
+                    .establish()
+            } catch (e: Exception) {
+                Log.w(TAG, "Kill Switch interface failed: ${e.message}")
+                null
+            }
+        if (blocked == null) {
+            down()
+            return
+        }
+        Log.i(TAG, "tunnel failed; Kill Switch keeps the internet blocked")
+        StatusHub.onStatus(
+            VpnStatus(VpnState.ERROR, null, null, 0uL, 0uL, 0uL, getString(R.string.blocked)),
+        )
+    }
+
+    private fun unblock() {
+        blocked?.close()
+        blocked = null
     }
 
     /** The user turned the VPN off in system settings, or another VPN took over. */
@@ -118,6 +209,7 @@ class PartizanVpnService : VpnService() {
 
     override fun onDestroy() {
         StatusHub.forget(observer)
+        unblock()
         if (running) {
             running = false
             worker.execute { coreStop() }
@@ -169,13 +261,13 @@ class PartizanVpnService : VpnService() {
                 PendingIntent.FLAG_IMMUTABLE,
             )
         val text =
-            buildString {
+            if (blocked != null) getString(R.string.blocked) else buildString {
                 append(stateText(status.state))
                 status.transport?.let { append(" · ").append(it.uppercase()) }
                 status.rttMs?.let { append(" · ").append(it).append(" мс") }
             }
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_vpn)
+            .setSmallIcon(R.drawable.ic_p)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setContentIntent(open)
@@ -205,8 +297,11 @@ class PartizanVpnService : VpnService() {
         private const val TAG = "partizan"
         private const val ACTION_START = "partizan.client.START"
         private const val ACTION_STOP = "partizan.client.STOP"
+        private const val ACTION_TOGGLE = "partizan.client.TOGGLE"
         private const val EXTRA_URI = "uri"
         private const val EXTRA_MTU = "mtu"
+        private const val EXTRA_INCLUDE = "include"
+        private const val EXTRA_ROUTES = "routes"
         private const val CHANNEL_ID = "vpn"
         private const val NOTIFICATION_ID = 1
         const val DEFAULT_MTU = 1400
@@ -219,14 +314,20 @@ class PartizanVpnService : VpnService() {
         private const val DNS_V4 = "1.1.1.1"
         private const val DNS_V6 = "2606:4700:4700::1111"
 
-        fun start(context: Context, uri: String, mtu: Int) {
+        fun start(context: Context, uri: String, mtu: Int, include: Boolean, routes: List<String>) {
             val intent =
                 Intent(context, PartizanVpnService::class.java)
                     .setAction(ACTION_START)
                     .putExtra(EXTRA_URI, uri)
                     .putExtra(EXTRA_MTU, mtu)
+                    .putExtra(EXTRA_INCLUDE, include)
+                    .putExtra(EXTRA_ROUTES, routes.toTypedArray())
             context.startForegroundService(intent)
         }
+
+        /** Up with the stored active profile if down, down if up. */
+        fun toggleIntent(context: Context): Intent =
+            Intent(context, PartizanVpnService::class.java).setAction(ACTION_TOGGLE)
 
         fun stop(context: Context) {
             context.startService(

@@ -7,11 +7,13 @@ import '../../core/vpn_status.dart';
 import '../../state/profiles.dart';
 import '../../state/vpn.dart';
 import '../theme.dart';
+import '../widgets/art.dart';
+import '../widgets/distressed_title.dart';
+import '../widgets/record.dart';
 import 'servers_screen.dart';
 import 'settings_screen.dart';
 
-/// Main screen: the tunnel state from the core; tapping it brings the tunnel up or down.
-/// The full switch and traffic figures come in A08.
+/// Main screen: the record is the switch, the headline the core's state.
 class ConnectionScreen extends ConsumerWidget {
   const ConnectionScreen({super.key});
 
@@ -28,70 +30,107 @@ class ConnectionScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(vpnStatusProvider);
     final active = ref.watch(activeProfileProvider).value;
-    final text = Theme.of(context).textTheme;
-    return Scaffold(
-      backgroundColor: PartizanColors.red,
-      appBar: AppBar(
-        backgroundColor: PartizanColors.red,
-        foregroundColor: PartizanColors.black,
-        centerTitle: false,
-        title: Text(
-          'partizan',
-          style: text.headlineLarge?.copyWith(
-            color: PartizanColors.black,
-            fontWeight: FontWeight.w900,
+    ref.listen(connectRequestsProvider, (_, _) {
+      final state = ref.read(vpnStatusProvider).value?.state ?? VpnState.idle;
+      if (!isActive(state)) _toggle(context, ref, state, active);
+    });
+    final state = status.value?.state ?? VpnState.idle;
+    final connecting =
+        state == VpnState.connecting || state == VpnState.reconnecting;
+    // Black on red; white on the dark background while connecting.
+    final ink = connecting ? PartizanColors.white : PartizanColors.black;
+    final media = MediaQuery.of(context);
+    // Keep the content clear of the stones: they start this far above the bottom edge.
+    final clear =
+        (Debris.top(media.size.width) - media.padding.bottom - 16).clamp(
+          0.0,
+          double.infinity,
+        ) +
+        8;
+    final card = Padding(
+      padding: const EdgeInsets.only(right: 12, top: 16),
+      child: Card(
+        color: PartizanColors.black.withValues(alpha: 0.92),
+        child: ListTile(
+          leading: const Icon(Icons.public),
+          title: Text(active?.name ?? 'Сервер не выбран'),
+          subtitle: Text(
+            active?.address ?? 'Добавьте сервер по ссылке partizan://',
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          tileColor: Colors.transparent,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const ServersScreen()),
           ),
         ),
-        actions: [
-          IconButton(
-            tooltip: 'Настройки',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
+      ),
+    );
+    return Scaffold(
+      backgroundColor: PartizanColors.red,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: AnimatedOpacity(
+              opacity: connecting ? 1 : 0,
+              duration: const Duration(milliseconds: 500),
+              child: Image.asset(Art.connectBackground, fit: BoxFit.cover),
+            ),
+          ),
+          const Positioned.fill(child: Debris()),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 8, 16),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      // Worn like the headline.
+                      Distressed(child: Logo(height: 64, color: ink)),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'Настройки',
+                        color: ink,
+                        icon: const Icon(Icons.settings_outlined),
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const SettingsScreen(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: clear),
+                      child: switch (status) {
+                        AsyncData(:final value) => _State(
+                          status: value,
+                          ink: ink,
+                          card: card,
+                          onTap: () =>
+                              _toggle(context, ref, value.state, active),
+                        ),
+                        AsyncError(:final error) => Center(
+                          child: Text(
+                            'Ядро недоступно: $error',
+                            key: const Key('core-error'),
+                            style: inter(16, color: PartizanColors.black),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        _ => const Center(
+                          child: CircularProgressIndicator(
+                            color: PartizanColors.black,
+                          ),
+                        ),
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              const Spacer(),
-              switch (status) {
-                AsyncData(:final value) => _State(
-                  status: value,
-                  onTap: () => _toggle(context, ref, value.state, active),
-                ),
-                AsyncError(:final error) => Text(
-                  'Ядро недоступно: $error',
-                  key: const Key('core-error'),
-                  style: text.bodyLarge?.copyWith(color: PartizanColors.black),
-                  textAlign: TextAlign.center,
-                ),
-                _ => const CircularProgressIndicator(
-                  color: PartizanColors.black,
-                ),
-              },
-              const Spacer(),
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.public),
-                  title: Text(active?.name ?? 'Сервер не выбран'),
-                  subtitle: Text(
-                    active?.address ?? 'Добавьте сервер по ссылке partizan://',
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ServersScreen(),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -115,8 +154,9 @@ class ConnectionScreen extends ConsumerWidget {
         ).push(MaterialPageRoute<void>(builder: (_) => const ServersScreen()));
         return;
       }
+      final store = ref.read(profileStoreProvider);
       // Read from the Keystore only now, for the start.
-      final link = await ref.read(profileStoreProvider).link(active.id);
+      final link = await store.link(active.id);
       if (link == null) {
         messenger.showSnackBar(
           const SnackBar(
@@ -125,7 +165,7 @@ class ConnectionScreen extends ConsumerWidget {
         );
         return;
       }
-      await bridge.start(uri: link);
+      await bridge.start(uri: link, split: await store.rulesFor(active));
     } on PlatformException catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message ?? e.code)));
     }
@@ -133,34 +173,51 @@ class ConnectionScreen extends ConsumerWidget {
 }
 
 class _State extends StatelessWidget {
-  const _State({required this.status, required this.onTap});
+  const _State({
+    required this.status,
+    required this.ink,
+    required this.card,
+    required this.onTap,
+  });
 
   final VpnStatus status;
+  final Color ink;
+
+  /// The active server, right under the headline.
+  final Widget card;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
     final transport = status.transport;
-    return InkWell(
-      key: const Key('vpn-toggle'),
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        child: Column(
+    return LayoutBuilder(
+      builder: (context, box) {
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            FittedBox(
-              child: Text(
-                ConnectionScreen.label(status.state),
-                key: const Key('vpn-state'),
-                style: text.displayMedium?.copyWith(
-                  color: PartizanColors.black,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2,
+            // The record takes what the rest leaves, up to 82% of the width.
+            Flexible(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: box.maxWidth * 0.82),
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: RecordToggle(state: status.state, onTap: onTap),
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: DistressedTitle(
+                ConnectionScreen.label(status.state),
+                style: oswald(54, weight: 700, color: ink, spacing: 2),
+              ),
+            ),
+            if (status.state == VpnState.idle)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 4, 20, 0),
+                child: SizedBox(height: 28, child: LongArrow(color: ink)),
+              ),
             if (transport != null)
               Text(
                 [
@@ -168,17 +225,21 @@ class _State extends StatelessWidget {
                   if (status.rttMs case final rtt?) '$rtt мс',
                 ].join(' · '),
                 key: const Key('vpn-transport'),
-                style: text.titleMedium?.copyWith(color: PartizanColors.black),
+                style: oswald(18, weight: 500, color: ink),
               ),
             if (status.error case final error?)
-              Text(
-                error,
-                style: text.bodyMedium?.copyWith(color: PartizanColors.black),
-                textAlign: TextAlign.center,
+              Padding(
+                padding: const EdgeInsets.only(top: 4, right: 12),
+                child: Text(
+                  error,
+                  style: inter(14, color: ink),
+                  textAlign: TextAlign.center,
+                ),
               ),
+            card,
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }

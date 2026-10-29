@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:partizan/core/split.dart';
 import 'package:partizan/core/vpn_status.dart';
 import 'package:partizan/platform/channel_vpn_bridge.dart';
 
@@ -31,10 +32,22 @@ void main() {
       return null;
     });
     const bridge = ChannelVpnBridge();
-    await bridge.start(uri: 'partizan://x', mtu: 1280);
+    await bridge.start(
+      uri: 'partizan://x',
+      mtu: 1280,
+      split: SplitRules(
+        mode: SplitMode.include,
+        routes: parseRoutes('99.84.0.0/16, 2606:4700::/32').routes,
+      ),
+    );
     await bridge.stop();
     expect(calls.map((c) => c.method), ['start', 'stop']);
-    expect(calls.first.arguments, {'uri': 'partizan://x', 'mtu': 1280});
+    expect(calls.first.arguments, {
+      'uri': 'partizan://x',
+      'mtu': 1280,
+      'mode': 'include',
+      'routes': ['99.84.0.0/16', '2606:4700::/32'],
+    });
   });
 
   test('changes arrive over the event channel', () async {

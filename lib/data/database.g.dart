@@ -71,6 +71,21 @@ class $ProfilesTable extends Profiles
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _ownRulesMeta = const VerificationMeta(
+    'ownRules',
+  );
+  @override
+  late final GeneratedColumn<bool> ownRules = GeneratedColumn<bool>(
+    'own_rules',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("own_rules" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -79,6 +94,7 @@ class $ProfilesTable extends Profiles
     host,
     port,
     transport,
+    ownRules,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -135,6 +151,12 @@ class $ProfilesTable extends Profiles
     } else if (isInserting) {
       context.missing(_transportMeta);
     }
+    if (data.containsKey('own_rules')) {
+      context.handle(
+        _ownRulesMeta,
+        ownRules.isAcceptableOrUnknown(data['own_rules']!, _ownRulesMeta),
+      );
+    }
     return context;
   }
 
@@ -168,6 +190,10 @@ class $ProfilesTable extends Profiles
         DriftSqlType.string,
         data['${effectivePrefix}transport'],
       )!,
+      ownRules: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}own_rules'],
+      )!,
     );
   }
 
@@ -186,6 +212,9 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
   final String host;
   final int port;
   final String transport;
+
+  /// Uses its own split tunneling rules instead of the shared ones (A09).
+  final bool ownRules;
   const ProfileRow({
     required this.id,
     required this.name,
@@ -193,6 +222,7 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
     required this.host,
     required this.port,
     required this.transport,
+    required this.ownRules,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -203,6 +233,7 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
     map['host'] = Variable<String>(host);
     map['port'] = Variable<int>(port);
     map['transport'] = Variable<String>(transport);
+    map['own_rules'] = Variable<bool>(ownRules);
     return map;
   }
 
@@ -214,6 +245,7 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
       host: Value(host),
       port: Value(port),
       transport: Value(transport),
+      ownRules: Value(ownRules),
     );
   }
 
@@ -229,6 +261,7 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
       host: serializer.fromJson<String>(json['host']),
       port: serializer.fromJson<int>(json['port']),
       transport: serializer.fromJson<String>(json['transport']),
+      ownRules: serializer.fromJson<bool>(json['ownRules']),
     );
   }
   @override
@@ -241,6 +274,7 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
       'host': serializer.toJson<String>(host),
       'port': serializer.toJson<int>(port),
       'transport': serializer.toJson<String>(transport),
+      'ownRules': serializer.toJson<bool>(ownRules),
     };
   }
 
@@ -251,6 +285,7 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
     String? host,
     int? port,
     String? transport,
+    bool? ownRules,
   }) => ProfileRow(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -258,6 +293,7 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
     host: host ?? this.host,
     port: port ?? this.port,
     transport: transport ?? this.transport,
+    ownRules: ownRules ?? this.ownRules,
   );
   ProfileRow copyWithCompanion(ProfilesCompanion data) {
     return ProfileRow(
@@ -267,6 +303,7 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
       host: data.host.present ? data.host.value : this.host,
       port: data.port.present ? data.port.value : this.port,
       transport: data.transport.present ? data.transport.value : this.transport,
+      ownRules: data.ownRules.present ? data.ownRules.value : this.ownRules,
     );
   }
 
@@ -278,13 +315,15 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
           ..write('position: $position, ')
           ..write('host: $host, ')
           ..write('port: $port, ')
-          ..write('transport: $transport')
+          ..write('transport: $transport, ')
+          ..write('ownRules: $ownRules')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(id, name, position, host, port, transport);
+  int get hashCode =>
+      Object.hash(id, name, position, host, port, transport, ownRules);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -294,7 +333,8 @@ class ProfileRow extends DataClass implements Insertable<ProfileRow> {
           other.position == this.position &&
           other.host == this.host &&
           other.port == this.port &&
-          other.transport == this.transport);
+          other.transport == this.transport &&
+          other.ownRules == this.ownRules);
 }
 
 class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
@@ -304,6 +344,7 @@ class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
   final Value<String> host;
   final Value<int> port;
   final Value<String> transport;
+  final Value<bool> ownRules;
   const ProfilesCompanion({
     this.id = const Value.absent(),
     this.name = const Value.absent(),
@@ -311,6 +352,7 @@ class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
     this.host = const Value.absent(),
     this.port = const Value.absent(),
     this.transport = const Value.absent(),
+    this.ownRules = const Value.absent(),
   });
   ProfilesCompanion.insert({
     this.id = const Value.absent(),
@@ -319,6 +361,7 @@ class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
     required String host,
     required int port,
     required String transport,
+    this.ownRules = const Value.absent(),
   }) : name = Value(name),
        position = Value(position),
        host = Value(host),
@@ -331,6 +374,7 @@ class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
     Expression<String>? host,
     Expression<int>? port,
     Expression<String>? transport,
+    Expression<bool>? ownRules,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -339,6 +383,7 @@ class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
       if (host != null) 'host': host,
       if (port != null) 'port': port,
       if (transport != null) 'transport': transport,
+      if (ownRules != null) 'own_rules': ownRules,
     });
   }
 
@@ -349,6 +394,7 @@ class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
     Value<String>? host,
     Value<int>? port,
     Value<String>? transport,
+    Value<bool>? ownRules,
   }) {
     return ProfilesCompanion(
       id: id ?? this.id,
@@ -357,6 +403,7 @@ class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
       host: host ?? this.host,
       port: port ?? this.port,
       transport: transport ?? this.transport,
+      ownRules: ownRules ?? this.ownRules,
     );
   }
 
@@ -381,6 +428,9 @@ class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
     if (transport.present) {
       map['transport'] = Variable<String>(transport.value);
     }
+    if (ownRules.present) {
+      map['own_rules'] = Variable<bool>(ownRules.value);
+    }
     return map;
   }
 
@@ -392,7 +442,8 @@ class ProfilesCompanion extends UpdateCompanion<ProfileRow> {
           ..write('position: $position, ')
           ..write('host: $host, ')
           ..write('port: $port, ')
-          ..write('transport: $transport')
+          ..write('transport: $transport, ')
+          ..write('ownRules: $ownRules')
           ..write(')'))
         .toString();
   }
@@ -606,16 +657,285 @@ class SettingsCompanion extends UpdateCompanion<SettingRow> {
   }
 }
 
+class $SplitRuleSetsTable extends SplitRuleSets
+    with TableInfo<$SplitRuleSetsTable, SplitRuleRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SplitRuleSetsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _scopeMeta = const VerificationMeta('scope');
+  @override
+  late final GeneratedColumn<String> scope = GeneratedColumn<String>(
+    'scope',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _modeMeta = const VerificationMeta('mode');
+  @override
+  late final GeneratedColumn<String> mode = GeneratedColumn<String>(
+    'mode',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _routesMeta = const VerificationMeta('routes');
+  @override
+  late final GeneratedColumn<String> routes = GeneratedColumn<String>(
+    'routes',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [scope, mode, routes];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'split_rule_sets';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SplitRuleRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('scope')) {
+      context.handle(
+        _scopeMeta,
+        scope.isAcceptableOrUnknown(data['scope']!, _scopeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_scopeMeta);
+    }
+    if (data.containsKey('mode')) {
+      context.handle(
+        _modeMeta,
+        mode.isAcceptableOrUnknown(data['mode']!, _modeMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_modeMeta);
+    }
+    if (data.containsKey('routes')) {
+      context.handle(
+        _routesMeta,
+        routes.isAcceptableOrUnknown(data['routes']!, _routesMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_routesMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {scope};
+  @override
+  SplitRuleRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SplitRuleRow(
+      scope: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}scope'],
+      )!,
+      mode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}mode'],
+      )!,
+      routes: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}routes'],
+      )!,
+    );
+  }
+
+  @override
+  $SplitRuleSetsTable createAlias(String alias) {
+    return $SplitRuleSetsTable(attachedDatabase, alias);
+  }
+}
+
+class SplitRuleRow extends DataClass implements Insertable<SplitRuleRow> {
+  final String scope;
+
+  /// `include` or `exclude`.
+  final String mode;
+
+  /// The routes in the file format: `99.84.0.0/16, 203.0.113.7/32`.
+  final String routes;
+  const SplitRuleRow({
+    required this.scope,
+    required this.mode,
+    required this.routes,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['scope'] = Variable<String>(scope);
+    map['mode'] = Variable<String>(mode);
+    map['routes'] = Variable<String>(routes);
+    return map;
+  }
+
+  SplitRuleSetsCompanion toCompanion(bool nullToAbsent) {
+    return SplitRuleSetsCompanion(
+      scope: Value(scope),
+      mode: Value(mode),
+      routes: Value(routes),
+    );
+  }
+
+  factory SplitRuleRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SplitRuleRow(
+      scope: serializer.fromJson<String>(json['scope']),
+      mode: serializer.fromJson<String>(json['mode']),
+      routes: serializer.fromJson<String>(json['routes']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'scope': serializer.toJson<String>(scope),
+      'mode': serializer.toJson<String>(mode),
+      'routes': serializer.toJson<String>(routes),
+    };
+  }
+
+  SplitRuleRow copyWith({String? scope, String? mode, String? routes}) =>
+      SplitRuleRow(
+        scope: scope ?? this.scope,
+        mode: mode ?? this.mode,
+        routes: routes ?? this.routes,
+      );
+  SplitRuleRow copyWithCompanion(SplitRuleSetsCompanion data) {
+    return SplitRuleRow(
+      scope: data.scope.present ? data.scope.value : this.scope,
+      mode: data.mode.present ? data.mode.value : this.mode,
+      routes: data.routes.present ? data.routes.value : this.routes,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SplitRuleRow(')
+          ..write('scope: $scope, ')
+          ..write('mode: $mode, ')
+          ..write('routes: $routes')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(scope, mode, routes);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SplitRuleRow &&
+          other.scope == this.scope &&
+          other.mode == this.mode &&
+          other.routes == this.routes);
+}
+
+class SplitRuleSetsCompanion extends UpdateCompanion<SplitRuleRow> {
+  final Value<String> scope;
+  final Value<String> mode;
+  final Value<String> routes;
+  final Value<int> rowid;
+  const SplitRuleSetsCompanion({
+    this.scope = const Value.absent(),
+    this.mode = const Value.absent(),
+    this.routes = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  SplitRuleSetsCompanion.insert({
+    required String scope,
+    required String mode,
+    required String routes,
+    this.rowid = const Value.absent(),
+  }) : scope = Value(scope),
+       mode = Value(mode),
+       routes = Value(routes);
+  static Insertable<SplitRuleRow> custom({
+    Expression<String>? scope,
+    Expression<String>? mode,
+    Expression<String>? routes,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (scope != null) 'scope': scope,
+      if (mode != null) 'mode': mode,
+      if (routes != null) 'routes': routes,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  SplitRuleSetsCompanion copyWith({
+    Value<String>? scope,
+    Value<String>? mode,
+    Value<String>? routes,
+    Value<int>? rowid,
+  }) {
+    return SplitRuleSetsCompanion(
+      scope: scope ?? this.scope,
+      mode: mode ?? this.mode,
+      routes: routes ?? this.routes,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (scope.present) {
+      map['scope'] = Variable<String>(scope.value);
+    }
+    if (mode.present) {
+      map['mode'] = Variable<String>(mode.value);
+    }
+    if (routes.present) {
+      map['routes'] = Variable<String>(routes.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SplitRuleSetsCompanion(')
+          ..write('scope: $scope, ')
+          ..write('mode: $mode, ')
+          ..write('routes: $routes, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
   late final $ProfilesTable profiles = $ProfilesTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
+  late final $SplitRuleSetsTable splitRuleSets = $SplitRuleSetsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [profiles, settings];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [
+    profiles,
+    settings,
+    splitRuleSets,
+  ];
 }
 
 typedef $$ProfilesTableCreateCompanionBuilder = ProfilesCompanion Function({
@@ -625,6 +945,7 @@ typedef $$ProfilesTableCreateCompanionBuilder = ProfilesCompanion Function({
   required String host,
   required int port,
   required String transport,
+  Value<bool> ownRules,
 });
 typedef $$ProfilesTableUpdateCompanionBuilder = ProfilesCompanion Function({
   Value<int> id,
@@ -633,6 +954,7 @@ typedef $$ProfilesTableUpdateCompanionBuilder = ProfilesCompanion Function({
   Value<String> host,
   Value<int> port,
   Value<String> transport,
+  Value<bool> ownRules,
 });
 
 class $$ProfilesTableFilterComposer
@@ -671,6 +993,11 @@ class $$ProfilesTableFilterComposer
 
   ColumnFilters<String> get transport => $composableBuilder(
     column: $table.transport,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get ownRules => $composableBuilder(
+    column: $table.ownRules,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -713,6 +1040,11 @@ class $$ProfilesTableOrderingComposer
     column: $table.transport,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get ownRules => $composableBuilder(
+    column: $table.ownRules,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ProfilesTableAnnotationComposer
@@ -741,6 +1073,9 @@ class $$ProfilesTableAnnotationComposer
 
   GeneratedColumn<String> get transport =>
       $composableBuilder(column: $table.transport, builder: (column) => column);
+
+  GeneratedColumn<bool> get ownRules =>
+      $composableBuilder(column: $table.ownRules, builder: (column) => column);
 }
 
 class $$ProfilesTableTableManager
@@ -780,6 +1115,7 @@ class $$ProfilesTableTableManager
                 Value<String> host = const Value.absent(),
                 Value<int> port = const Value.absent(),
                 Value<String> transport = const Value.absent(),
+                Value<bool> ownRules = const Value.absent(),
               }) => ProfilesCompanion(
                 id: id,
                 name: name,
@@ -787,6 +1123,7 @@ class $$ProfilesTableTableManager
                 host: host,
                 port: port,
                 transport: transport,
+                ownRules: ownRules,
               ),
           createCompanionCallback:
               ({
@@ -796,6 +1133,7 @@ class $$ProfilesTableTableManager
                 required String host,
                 required int port,
                 required String transport,
+                Value<bool> ownRules = const Value.absent(),
               }) => ProfilesCompanion.insert(
                 id: id,
                 name: name,
@@ -803,6 +1141,7 @@ class $$ProfilesTableTableManager
                 host: host,
                 port: port,
                 transport: transport,
+                ownRules: ownRules,
               ),
           withReferenceMapper: (p0) => p0
               .map(
@@ -972,6 +1311,177 @@ typedef $$SettingsTableProcessedTableManager =
       SettingRow,
       PrefetchHooks Function()
     >;
+typedef $$SplitRuleSetsTableCreateCompanionBuilder =
+    SplitRuleSetsCompanion Function({
+      required String scope,
+      required String mode,
+      required String routes,
+      Value<int> rowid,
+    });
+typedef $$SplitRuleSetsTableUpdateCompanionBuilder =
+    SplitRuleSetsCompanion Function({
+      Value<String> scope,
+      Value<String> mode,
+      Value<String> routes,
+      Value<int> rowid,
+    });
+
+class $$SplitRuleSetsTableFilterComposer
+    extends Composer<_$AppDatabase, $SplitRuleSetsTable> {
+  $$SplitRuleSetsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get mode => $composableBuilder(
+    column: $table.mode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get routes => $composableBuilder(
+    column: $table.routes,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SplitRuleSetsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SplitRuleSetsTable> {
+  $$SplitRuleSetsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get scope => $composableBuilder(
+    column: $table.scope,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get mode => $composableBuilder(
+    column: $table.mode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get routes => $composableBuilder(
+    column: $table.routes,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SplitRuleSetsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SplitRuleSetsTable> {
+  $$SplitRuleSetsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get scope =>
+      $composableBuilder(column: $table.scope, builder: (column) => column);
+
+  GeneratedColumn<String> get mode =>
+      $composableBuilder(column: $table.mode, builder: (column) => column);
+
+  GeneratedColumn<String> get routes =>
+      $composableBuilder(column: $table.routes, builder: (column) => column);
+}
+
+class $$SplitRuleSetsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SplitRuleSetsTable,
+          SplitRuleRow,
+          $$SplitRuleSetsTableFilterComposer,
+          $$SplitRuleSetsTableOrderingComposer,
+          $$SplitRuleSetsTableAnnotationComposer,
+          $$SplitRuleSetsTableCreateCompanionBuilder,
+          $$SplitRuleSetsTableUpdateCompanionBuilder,
+          (
+            SplitRuleRow,
+            BaseReferences<_$AppDatabase, $SplitRuleSetsTable, SplitRuleRow>,
+          ),
+          SplitRuleRow,
+          PrefetchHooks Function()
+        > {
+  $$SplitRuleSetsTableTableManager(_$AppDatabase db, $SplitRuleSetsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SplitRuleSetsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SplitRuleSetsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SplitRuleSetsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> scope = const Value.absent(),
+                Value<String> mode = const Value.absent(),
+                Value<String> routes = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => SplitRuleSetsCompanion(
+                scope: scope,
+                mode: mode,
+                routes: routes,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String scope,
+                required String mode,
+                required String routes,
+                Value<int> rowid = const Value.absent(),
+              }) => SplitRuleSetsCompanion.insert(
+                scope: scope,
+                mode: mode,
+                routes: routes,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$SplitRuleSetsTable, SplitRuleRow>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $SplitRuleSetsTable,
+                    SplitRuleRow
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SplitRuleSetsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SplitRuleSetsTable,
+      SplitRuleRow,
+      $$SplitRuleSetsTableFilterComposer,
+      $$SplitRuleSetsTableOrderingComposer,
+      $$SplitRuleSetsTableAnnotationComposer,
+      $$SplitRuleSetsTableCreateCompanionBuilder,
+      $$SplitRuleSetsTableUpdateCompanionBuilder,
+      (
+        SplitRuleRow,
+        BaseReferences<_$AppDatabase, $SplitRuleSetsTable, SplitRuleRow>,
+      ),
+      SplitRuleRow,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -980,4 +1490,6 @@ class $AppDatabaseManager {
       $$ProfilesTableTableManager(_db, _db.profiles);
   $$SettingsTableTableManager get settings =>
       $$SettingsTableTableManager(_db, _db.settings);
+  $$SplitRuleSetsTableTableManager get splitRuleSets =>
+      $$SplitRuleSetsTableTableManager(_db, _db.splitRuleSets);
 }

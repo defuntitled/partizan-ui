@@ -1,5 +1,6 @@
 package partizan.client
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import io.flutter.embedding.engine.FlutterEngine
@@ -20,6 +21,8 @@ import partizan.core.status
 object VpnChannel {
     private const val METHODS = "partizan/vpn"
     private const val EVENTS = "partizan/vpn/status"
+    private const val SECRETS = "partizan/secrets"
+    private const val NAV = "partizan/nav"
 
     /** `check_uri` blocks for seconds while it tries the server. */
     private val checks = Executors.newSingleThreadExecutor()
@@ -37,10 +40,12 @@ object VpnChannel {
                         return@setMethodCallHandler
                     }
                     val mtu = call.argument<Int>("mtu") ?: PartizanVpnService.DEFAULT_MTU
+                    val include = call.argument<String>("mode") == "include"
+                    val routes = call.argument<List<String>>("routes") ?: emptyList()
                     // Asks for the VPN permission first if the system has not granted it yet.
                     activity.withVpnPermission { granted ->
                         if (granted) {
-                            PartizanVpnService.start(activity, uri, mtu)
+                            PartizanVpnService.start(activity, uri, mtu, include, routes)
                             result.success(null)
                         } else {
                             result.error("denied", "VPN permission denied", null)
@@ -71,10 +76,64 @@ object VpnChannel {
                     PartizanVpnService.stop(activity)
                     result.success(null)
                 }
+                "openVpnSettings" -> {
+                    activity.startActivity(android.content.Intent(android.provider.Settings.ACTION_VPN_SETTINGS))
+                    result.success(null)
+                }
+                "setLaunch" -> {
+                    val id = call.argument<Int>("profileId")
+                    val launch =
+                        id?.let {
+                            Launch(
+                                it,
+                                call.argument<String>("name") ?: "",
+                                call.argument<String>("mode") == "include",
+                                call.argument<List<String>>("routes") ?: emptyList(),
+                            )
+                        }
+                    Launch.write(activity, launch, call.argument<Boolean>("killSwitch") ?: false)
+                    Surfaces.update(activity, status())
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
         EventChannel(messenger, EVENTS).setStreamHandler(StatusHub)
+
+        val vault = SecretVault(activity)
+        MethodChannel(messenger, SECRETS).setMethodCallHandler { call, result ->
+            val key = call.argument<String>("key")
+            if (key == null) {
+                result.error("args", "key is required", null)
+                return@setMethodCallHandler
+            }
+            try {
+                when (call.method) {
+                    "read" -> result.success(vault.read(key))
+                    "write" -> {
+                        vault.write(key, call.argument<String>("value") ?: "")
+                        result.success(null)
+                    }
+                    "delete" -> {
+                        vault.delete(key)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            } catch (e: Exception) {
+                // Never the value in the message: only what failed.
+                result.error("vault", "${call.method} failed: ${e.javaClass.simpleName}", null)
+            }
+        }
+
+        val nav = MethodChannel(messenger, NAV)
+        nav.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "takeTarget" -> result.success(activity.takeTarget())
+                else -> result.notImplemented()
+            }
+        }
+        activity.onTarget = { target -> nav.invokeMethod("target", target) }
     }
 }
 
@@ -85,6 +144,12 @@ object VpnChannel {
  */
 object StatusHub : StatusListener, EventChannel.StreamHandler {
     private val main = Handler(Looper.getMainLooper())
+    private var context: Context? = null
+
+    /** Lets status changes redraw the tile and the widget; any component may call it. */
+    fun bind(context: Context) {
+        this.context = context.applicationContext
+    }
     private var sink: EventChannel.EventSink? = null
     private val observers = CopyOnWriteArrayList<(VpnStatus) -> Unit>()
 
@@ -109,6 +174,7 @@ object StatusHub : StatusListener, EventChannel.StreamHandler {
         main.post {
             sink?.success(status.toMap())
             observers.forEach { it(status) }
+            context?.let { Surfaces.update(it, status) }
         }
     }
 }
