@@ -6,3 +6,13 @@ skills-lock.json
 .agents
 .codegraph
 session-log.md
+
+# Flutter and Dart
+.dart_tool/
+build/
+.flutter-plugins-dependencies
+.idea/
+*.iml
+# The core AAR, built by scripts/core-aar.sh (android/.gitignore has the rest).
+android/app/libs/
+android/.kotlin/

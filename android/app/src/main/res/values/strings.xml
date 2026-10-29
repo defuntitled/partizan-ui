@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">partizan</string>
+    <string name="vpn_channel">VPN-туннель</string>
+    <string name="disconnect">Отключить</string>
+    <string name="state_idle">Отключено</string>
+    <string name="state_connecting">Подключение…</string>
+    <string name="state_connected">Подключено</string>
+    <string name="state_reconnecting">Переподключение…</string>
+    <string name="state_revoked">Доступ отозван сервером</string>
+    <string name="state_error">Ошибка</string>
+</resources>

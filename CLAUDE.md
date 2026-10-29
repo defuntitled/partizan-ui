@@ -4,14 +4,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## State of the repo
 
-No code yet — only the spec. `spec/partizan_android_spec.md` (in Russian) is the source of truth for the Android/Flutter client: architecture, FFI surface, split-tunneling rules, storage, screens, and the commit-by-commit plan A01–A11 with per-commit DoD and test cases. `spec/partizan-ui-concept.png` is the UI concept. Implement commits in plan order and check the relevant spec section before writing code.
+This repo is the Flutter app (A05 on); `spec/partizan_android_spec.md` (in Russian) is the source of truth for the Android/Flutter client: architecture, FFI surface, split-tunneling rules, storage, screens, and the commit-by-commit plan A01–A11 with per-commit DoD and test cases. `spec/partizan-ui-concept.png` is the UI concept. Implement commits in plan order and check the relevant spec section before writing code.
 
-The tunnel core lives in the sibling repo `../partizan` (Rust workspace: `proto`, `transport`, `client-core`, `socks5`, `server`, `client-openwrt`). Its `CLAUDE.md`, `spec/partizan_spec.md` (protocol, formats, constants) and `spec/partizan — decompozition.md` (plan C01–C26) still apply; the A-plan continues that numbering and inherits its conventions. The Rust parts of the A-plan live in that workspace: `tun` (A01–A02) is `../partizan/crates/tun`, and `client-ffi` goes next to it. Run the checks from `../partizan/CLAUDE.md` there; locally BoringSSL bindgen needs `BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/gcc/x86_64-linux-gnu/15/include`.
+The tunnel core lives in the sibling repo `../partizan` (Rust workspace: `proto`, `transport`, `client-core`, `socks5`, `server`, `client-openwrt`). Its `CLAUDE.md`, `spec/partizan_spec.md` (protocol, formats, constants) and `spec/partizan — decompozition.md` (plan C01–C26) still apply; the A-plan continues that numbering and inherits its conventions. The Rust parts of the A-plan live in that workspace: `tun` (A01–A02), `client-ffi` and `uniffi-bindgen` (A03) in `../partizan/crates`, the AAR build (A04) in `../partizan/scripts/build-android.sh`. Run the checks from `../partizan/CLAUDE.md` there; locally BoringSSL bindgen needs `BINDGEN_EXTRA_CLANG_ARGS=-I/usr/lib/gcc/x86_64-linux-gnu/15/include`.
+
+## Commands
+
+```
+flutter analyze
+dart format lib test integration_test
+flutter test                                     # unit + widget tests, no device or core needed
+flutter test test/connection_screen_test.dart    # one file; add --plain-name 'A05-T3' for one test
+scripts/core-aar.sh [--no-build]                 # build core AAR in ../partizan, copy to android/app/libs
+flutter build apk --debug --target-platform android-arm64
+flutter test integration_test -d <device>        # A05-T2, A06 on a device; flutter test uninstalls the app after
+adb shell appops set partizan.client ACTIVATE_VPN allow   # pre-grant VPN for vpn_service_test (reset by reinstall)
+```
+
+The Android build needs the core AAR in `android/app/libs/` (gitignored), a JDK with `javac` (`JAVA_HOME=/snap/android-studio/current/jbr` here) and `ANDROID_HOME=~/Android/Sdk`. Flutter SDK: `~/development/flutter` (3.47.8). Building the AAR also needs `ANDROID_NDK_HOME` (see `../partizan/CLAUDE.md`).
+
+## App structure
+
+- `lib/core/` — platform-independent model (`VpnStatus` mirrors `client-ffi`'s record) and the `VpnBridge` interface. Screens and state depend only on it.
+- `lib/platform/` — `ChannelVpnBridge`: method channel `partizan/vpn` (calls) and event channel `partizan/vpn/status` (changes). The Kotlin side is `android/app/src/main/kotlin/partizan/client/VpnChannel.kt`; `StatusHub` there is the `StatusListener` handed to the core's `start` and forwards to Dart on the main thread. Map keys must match `VpnStatus.fromMap`.
+- `lib/state/` — riverpod. `vpnBridgeProvider` is overridden in `main.dart` and in tests with a fake.
+- Kotlin calls the core through the UniFFI bindings in package `partizan.core` (from the AAR) and JNA (`jna@aar` dependency). The app is arm64-only: `build.gradle.kts` clears the ABI list the Flutter plugin fills, otherwise JNA's 32-bit libraries make the APK installable where it cannot run.
+- `PartizanVpnService.kt` owns the Android lifecycle (TUN builder, foreground notification, `onRevoke`); the core owns the session. Core `stop()` blocks while the session closes — never call it on the main thread.
+- UI text is Russian; look follows `spec/partizan-ui-concept.png` (red/black, condensed caps).
 
 ## Architecture (from the spec)
 
 ```
-Flutter UI (Dart)          screens, state (riverpod/bloc), profiles (drift + flutter_secure_storage)
+Flutter UI (Dart)          screens, state (riverpod), profiles (drift + flutter_secure_storage)
   │ method channel
 Kotlin: VpnService + bridge  VPN lifecycle, TUN fd, foreground notification, TileService, App Widget
   │ UniFFI

@@ -1,0 +1,61 @@
+plugins {
+    id("com.android.application")
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id("dev.flutter.flutter-gradle-plugin")
+}
+
+android {
+    namespace = "partizan.client"
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    defaultConfig {
+        applicationId = "partizan.client"
+        // Android 8.0: notification channels and foreground services (the core AAR needs 24).
+        minSdk = maxOf(flutter.minSdkVersion, 26)
+        targetSdk = flutter.targetSdkVersion
+        // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
+        // is added automatically by Flutter. (https://developer.android.com/studio/build/configure-apk-splits#configure-APK-versions)
+        // You can force using the value of versionCode by specifying the `-P force-version-code-ignoring-abi=true`
+        // flag during build.
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName
+        // The core is built for arm64 only (spec: other ABIs later). The Flutter plugin has
+        // already put every ABI it supports here; an APK with JNA's 32-bit library alone would
+        // install on 32-bit devices and fail there.
+        ndk {
+            abiFilters.clear()
+            abiFilters += "arm64-v8a"
+        }
+    }
+
+    buildTypes {
+        release {
+            // TODO: Add your own signing config for the release build.
+            // Signing with the debug keys for now, so `flutter run --release` works.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+flutter {
+    source = "../.."
+}
+
+dependencies {
+    // Rust core with its Kotlin bindings: scripts/core-aar.sh builds and copies it here.
+    implementation(files("libs/partizan-core.aar"))
+    // The bindings call the core through JNA; the AAR carries no dependency metadata.
+    implementation("net.java.dev.jna:jna:5.19.1@aar")
+}
