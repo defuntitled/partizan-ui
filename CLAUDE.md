@@ -17,6 +17,7 @@ flutter test                                     # unit + widget tests, no devic
 flutter test test/connection_screen_test.dart    # one file; add --plain-name 'A05-T3' for one test
 scripts/core-aar.sh [--no-build]                 # build core AAR in ../partizan, copy to android/app/libs
 flutter build apk --debug --target-platform android-arm64
+scripts/install-device.sh [serial]              # rebuild + install + launch; never adb-install the APK left by integration tests
 flutter test integration_test -d <device>        # A05-T2, A06 on a device; flutter test uninstalls the app after
 adb shell appops set partizan.client ACTIVATE_VPN allow   # pre-grant VPN for vpn_service_test (reset by reinstall)
 ```
