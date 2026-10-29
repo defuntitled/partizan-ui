@@ -16,4 +16,41 @@ abstract interface class VpnBridge {
 
   /// Takes the tunnel down.
   Future<void> stop();
+
+  /// Has the core parse `uri` and try both transports, without the tunnel. Takes seconds.
+  /// Throws [LinkCheckException].
+  Future<CheckResult> checkUri(String uri);
+}
+
+/// What [VpnBridge.checkUri] found: setup times of the transports that work.
+class CheckResult {
+  const CheckResult({
+    required this.host,
+    required this.port,
+    this.quicMs,
+    this.tlsMs,
+  });
+
+  final String host;
+  final int port;
+  final int? quicMs;
+  final int? tlsMs;
+}
+
+enum LinkProblem {
+  /// The link is malformed; saving it is pointless.
+  invalid,
+
+  /// Well-formed, but the server did not answer over the configured transport.
+  unreachable,
+}
+
+class LinkCheckException implements Exception {
+  const LinkCheckException(this.problem, this.message);
+
+  final LinkProblem problem;
+  final String message;
+
+  @override
+  String toString() => message;
 }

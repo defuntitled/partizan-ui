@@ -12,6 +12,7 @@ The tunnel core lives in the sibling repo `../partizan` (Rust workspace: `proto`
 
 ```
 flutter analyze
+dart run build_runner build --delete-conflicting-outputs   # after changing lib/data/database.dart (drift)
 dart format lib test integration_test
 flutter test                                     # unit + widget tests, no device or core needed
 flutter test test/connection_screen_test.dart    # one file; add --plain-name 'A05-T3' for one test
@@ -28,6 +29,7 @@ The Android build needs the core AAR in `android/app/libs/` (gitignored), a JDK 
 
 - `lib/core/` — platform-independent model (`VpnStatus` mirrors `client-ffi`'s record) and the `VpnBridge` interface. Screens and state depend only on it.
 - `lib/platform/` — `ChannelVpnBridge`: method channel `partizan/vpn` (calls) and event channel `partizan/vpn/status` (changes). The Kotlin side is `android/app/src/main/kotlin/partizan/client/VpnChannel.kt`; `StatusHub` there is the `StatusListener` handed to the core's `start` and forwards to Dart on the main thread. Map keys must match `VpnStatus.fromMap`.
+- `lib/data/` — `drift` database (`database.g.dart` is generated, committed) and `LocalProfileStore`: profiles in SQLite, the link with the token only in the Keystore via `SecretStore`. Widget tests use `MemoryProfileStore` from `test/fakes.dart`; the drift store is tested against real SQLite in `test/profile_store_test.dart`.
 - `lib/state/` — riverpod. `vpnBridgeProvider` is overridden in `main.dart` and in tests with a fake.
 - Kotlin calls the core through the UniFFI bindings in package `partizan.core` (from the AAR) and JNA (`jna@aar` dependency). The app is arm64-only: `build.gradle.kts` clears the ABI list the Flutter plugin fills, otherwise JNA's 32-bit libraries make the APK installable where it cannot run.
 - `PartizanVpnService.kt` owns the Android lifecycle (TUN builder, foreground notification, `onRevoke`); the core owns the session. Core `stop()` blocks while the session closes — never call it on the main thread.

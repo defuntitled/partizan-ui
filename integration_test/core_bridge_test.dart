@@ -7,7 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:partizan/app.dart';
 import 'package:partizan/core/vpn_status.dart';
+import 'package:partizan/data/database.dart';
+import 'package:partizan/data/local_profile_store.dart';
 import 'package:partizan/platform/channel_vpn_bridge.dart';
+import 'package:partizan/state/profiles.dart';
 import 'package:partizan/state/vpn.dart';
 
 void main() {
@@ -19,7 +22,12 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [vpnBridgeProvider.overrideWithValue(bridge)],
+        overrides: [
+          vpnBridgeProvider.overrideWithValue(bridge),
+          profileStoreProvider.overrideWithValue(
+            LocalProfileStore(AppDatabase.open(), const KeystoreSecretStore()),
+          ),
+        ],
         child: const PartizanApp(),
       ),
     );

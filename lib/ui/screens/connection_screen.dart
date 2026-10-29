@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/profile.dart';
 import '../../core/vpn_status.dart';
+import '../../state/profiles.dart';
 import '../../state/vpn.dart';
 import '../theme.dart';
 import 'servers_screen.dart';
@@ -25,7 +27,7 @@ class ConnectionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = ref.watch(vpnStatusProvider);
-    final link = ref.watch(sessionLinkProvider);
+    final active = ref.watch(activeProfileProvider).value;
     final text = Theme.of(context).textTheme;
     return Scaffold(
       backgroundColor: PartizanColors.red,
@@ -59,7 +61,7 @@ class ConnectionScreen extends ConsumerWidget {
               switch (status) {
                 AsyncData(:final value) => _State(
                   status: value,
-                  onTap: () => _toggle(context, ref, value.state),
+                  onTap: () => _toggle(context, ref, value.state, active),
                 ),
                 AsyncError(:final error) => Text(
                   'Ядро недоступно: $error',
@@ -75,13 +77,9 @@ class ConnectionScreen extends ConsumerWidget {
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.public),
-                  title: Text(
-                    link == null ? 'Сервер не выбран' : 'Сервер по ссылке',
-                  ),
+                  title: Text(active?.name ?? 'Сервер не выбран'),
                   subtitle: Text(
-                    link == null
-                        ? 'Добавьте сервер по ссылке partizan://'
-                        : _host(link) ?? 'partizan://',
+                    active?.address ?? 'Добавьте сервер по ссылке partizan://',
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.of(context).push(
@@ -102,6 +100,7 @@ class ConnectionScreen extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref,
     VpnState state,
+    ServerProfile? active,
   ) async {
     final bridge = ref.read(vpnBridgeProvider);
     final messenger = ScaffoldMessenger.of(context);
@@ -110,26 +109,26 @@ class ConnectionScreen extends ConsumerWidget {
         await bridge.stop();
         return;
       }
-      var link = ref.read(sessionLinkProvider);
-      link ??= await showDialog<String>(
-        context: context,
-        builder: (_) => const LinkDialog(),
-      );
-      if (link == null) return;
-      ref.read(sessionLinkProvider.notifier).set(link);
+      if (active == null) {
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute<void>(builder: (_) => const ServersScreen()));
+        return;
+      }
+      // Read from the Keystore only now, for the start.
+      final link = await ref.read(profileStoreProvider).link(active.id);
+      if (link == null) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('Ссылка сервера потеряна, добавьте его заново'),
+          ),
+        );
+        return;
+      }
       await bridge.start(uri: link);
     } on PlatformException catch (e) {
       messenger.showSnackBar(SnackBar(content: Text(e.message ?? e.code)));
     }
-  }
-
-  /// The host of a `partizan://` link, without the credentials before it.
-  static String? _host(String link) {
-    final at = link.indexOf('@');
-    if (at < 0) return null;
-    final rest = link.substring(at + 1);
-    final end = rest.indexOf(RegExp('[?/]'));
-    return end < 0 ? rest : rest.substring(0, end);
   }
 }
 
@@ -182,53 +181,4 @@ class _State extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Asks for a `partizan://` link. The keyboard must not learn it: no suggestions, no
-/// autocorrect.
-class LinkDialog extends StatefulWidget {
-  const LinkDialog({super.key});
-
-  @override
-  State<LinkDialog> createState() => _LinkDialogState();
-}
-
-class _LinkDialogState extends State<LinkDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  bool get _valid => _controller.text.trim().startsWith('partizan://');
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Ссылка на сервер'),
-    content: TextField(
-      key: const Key('link-field'),
-      controller: _controller,
-      autofocus: true,
-      obscureText: true,
-      enableSuggestions: false,
-      autocorrect: false,
-      keyboardType: TextInputType.visiblePassword,
-      decoration: const InputDecoration(hintText: 'partizan://…'),
-      onChanged: (_) => setState(() {}),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Отмена'),
-      ),
-      FilledButton(
-        onPressed: _valid
-            ? () => Navigator.of(context).pop(_controller.text.trim())
-            : null,
-        child: const Text('Подключиться'),
-      ),
-    ],
-  );
 }

@@ -15,19 +15,6 @@ final vpnStatusProvider = StreamProvider<VpnStatus>((ref) async* {
   yield* bridge.statusChanges();
 });
 
-/// The link of the one server until profiles exist (A07). Kept in memory only, never written
-/// anywhere: the token in it may live only in the Keystore.
-final sessionLinkProvider = NotifierProvider<SessionLink, String?>(
-  SessionLink.new,
-);
-
-class SessionLink extends Notifier<String?> {
-  @override
-  String? build() => null;
-
-  void set(String? link) => state = link;
-}
-
 /// States in which the tunnel exists and the toggle takes it down.
 bool isActive(VpnState state) => switch (state) {
   VpnState.connecting || VpnState.connected || VpnState.reconnecting => true,

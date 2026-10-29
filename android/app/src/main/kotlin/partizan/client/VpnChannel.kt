@@ -6,8 +6,11 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 import partizan.core.StatusListener
+import partizan.core.VpnException
 import partizan.core.VpnStatus
+import partizan.core.checkUri
 import partizan.core.status
 
 /**
@@ -17,6 +20,10 @@ import partizan.core.status
 object VpnChannel {
     private const val METHODS = "partizan/vpn"
     private const val EVENTS = "partizan/vpn/status"
+
+    /** `check_uri` blocks for seconds while it tries the server. */
+    private val checks = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
 
     fun register(engine: FlutterEngine, activity: MainActivity) {
         val messenger = engine.dartExecutor.binaryMessenger
@@ -37,6 +44,26 @@ object VpnChannel {
                             result.success(null)
                         } else {
                             result.error("denied", "VPN permission denied", null)
+                        }
+                    }
+                }
+                "checkUri" -> {
+                    val uri = call.argument<String>("uri") ?: ""
+                    checks.execute {
+                        try {
+                            val r = checkUri(uri)
+                            val map =
+                                mapOf(
+                                    "host" to r.host,
+                                    "port" to r.port.toInt(),
+                                    "quicMs" to r.quicMs?.toInt(),
+                                    "tlsMs" to r.tlsMs?.toInt(),
+                                )
+                            main.post { result.success(map) }
+                        } catch (e: VpnException.InvalidUri) {
+                            main.post { result.error("invalid_uri", e.reason, null) }
+                        } catch (e: VpnException) {
+                            main.post { result.error("unreachable", e.message, null) }
                         }
                     }
                 }

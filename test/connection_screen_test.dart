@@ -1,38 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:partizan/app.dart';
-import 'package:partizan/core/vpn_bridge.dart';
 import 'package:partizan/core/vpn_status.dart';
-import 'package:partizan/state/vpn.dart';
+import 'package:partizan/core/link.dart';
 
-class FakeBridge implements VpnBridge {
-  FakeBridge(this.initial);
-
-  final VpnStatus initial;
-  final changes = StreamController<VpnStatus>();
-  final calls = <String>[];
-
-  @override
-  Future<VpnStatus> status() async => initial;
-
-  @override
-  Stream<VpnStatus> statusChanges() => changes.stream;
-
-  @override
-  Future<void> start({required String uri, int mtu = 1400}) async =>
-      calls.add('start $uri $mtu');
-
-  @override
-  Future<void> stop() async => calls.add('stop');
-}
-
-Widget app(VpnBridge bridge) => ProviderScope(
-  overrides: [vpnBridgeProvider.overrideWithValue(bridge)],
-  child: const PartizanApp(),
-);
+import 'fakes.dart';
 
 String stateText(WidgetTester tester) =>
     tester.widget<Text>(find.byKey(const Key('vpn-state'))).data!;
@@ -68,28 +39,24 @@ void main() {
     expect(stateText(tester), 'ДОСТУП ОТОЗВАН');
   });
 
-  testWidgets('the toggle asks for a link once, starts and stops the tunnel', (
+  testWidgets('the toggle starts the active profile and stops the tunnel', (
     tester,
   ) async {
-    const link = 'partizan://id:token@vpn.example.org:443?path=/sync';
-    final bridge = FakeBridge(VpnStatus.idle);
-    await tester.pumpWidget(app(bridge));
+    final bridge = FakeBridge();
+    final store = MemoryProfileStore();
+    await store.add(
+      name: 'Дом',
+      info: LinkInfo.parse(testLink)!,
+      link: testLink,
+    );
+    await tester.pumpWidget(app(bridge, store));
     await tester.pumpAndSettle();
+    expect(find.text('Дом'), findsOneWidget);
+    expect(find.text('vpn.example.org:8443'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('vpn-toggle')));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const Key('link-field')), 'https://nope');
-    await tester.pump();
-    final connect = find.widgetWithText(FilledButton, 'Подключиться');
-    expect(tester.widget<FilledButton>(connect).onPressed, isNull);
-    await tester.enterText(find.byKey(const Key('link-field')), link);
-    await tester.pump();
-    await tester.tap(connect);
-    await tester.pumpAndSettle();
-    expect(bridge.calls, ['start $link 1400']);
-    // The card names the host, never the token.
-    expect(find.text('vpn.example.org:443'), findsOneWidget);
-    expect(find.textContaining('token'), findsNothing);
+    expect(bridge.calls, ['start $testLink 1400']);
 
     bridge.changes.add(
       const VpnStatus(state: VpnState.connected, transport: 'quic'),
@@ -98,14 +65,16 @@ void main() {
     await tester.tap(find.byKey(const Key('vpn-toggle')));
     await tester.pumpAndSettle();
     expect(bridge.calls.last, 'stop');
+  });
 
-    // The link is remembered for the session: no second dialog.
-    bridge.changes.add(VpnStatus.idle);
+  testWidgets('without a server the toggle opens the list', (tester) async {
+    final bridge = FakeBridge();
+    await tester.pumpWidget(app(bridge));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('vpn-toggle')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('link-field')), findsNothing);
-    expect(bridge.calls.last, 'start $link 1400');
+    expect(find.text('СЕРВЕРЫ'), findsOneWidget);
+    expect(bridge.calls, isEmpty);
   });
 
   testWidgets('a failing core is shown, not swallowed', (tester) async {
@@ -116,7 +85,7 @@ void main() {
   });
 
   testWidgets('stub screens are reachable', (tester) async {
-    await tester.pumpWidget(app(FakeBridge(VpnStatus.idle)));
+    await tester.pumpWidget(app(FakeBridge()));
     await tester.pump();
 
     await tester.tap(find.text('Сервер не выбран'));
@@ -138,16 +107,7 @@ void main() {
   });
 }
 
-class _FailingBridge implements VpnBridge {
+class _FailingBridge extends FakeBridge {
   @override
   Future<VpnStatus> status() => Future.error(StateError('no core'));
-
-  @override
-  Stream<VpnStatus> statusChanges() => const Stream.empty();
-
-  @override
-  Future<void> start({required String uri, int mtu = 1400}) async {}
-
-  @override
-  Future<void> stop() async {}
 }

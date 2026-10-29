@@ -30,6 +30,26 @@ class ChannelVpnBridge implements VpnBridge {
   Future<void> stop() => methods.invokeMethod<void>('stop');
 
   @override
+  Future<CheckResult> checkUri(String uri) async {
+    try {
+      final map = await methods.invokeMapMethod<String, Object?>('checkUri', {
+        'uri': uri,
+      });
+      return CheckResult(
+        host: map!['host']! as String,
+        port: map['port']! as int,
+        quicMs: map['quicMs'] as int?,
+        tlsMs: map['tlsMs'] as int?,
+      );
+    } on PlatformException catch (e) {
+      final problem = e.code == 'invalid_uri'
+          ? LinkProblem.invalid
+          : LinkProblem.unreachable;
+      throw LinkCheckException(problem, e.message ?? e.code);
+    }
+  }
+
+  @override
   Stream<VpnStatus> statusChanges() => events.receiveBroadcastStream().map(
     (event) => VpnStatus.fromMap(event as Map<Object?, Object?>),
   );
